@@ -85,7 +85,12 @@ def render_pull_request(pr: PullRequest, author: str) -> str:
         meta += f" (GitHub #{_esc(pr.gh_number)})"
     if pr.head_sha:
         meta += f" · {_esc(pr.head_sha[:7])}"
-    return f'{head}\n{title}\n{meta}\n<a href="{pr.url}">{_esc(pr.url)}</a>'
+    review = ""
+    if pr.changes_by:
+        review = f"\n🔴 Changes requested by {_esc(', '.join(pr.changes_by))}"
+    elif pr.approved_by:
+        review = f"\n✅ Approved by {_esc(', '.join(pr.approved_by))}"
+    return f'{head}\n{title}\n{meta}{review}\n<a href="{pr.url}">{_esc(pr.url)}</a>'
 
 
 def _fmt_size(n: int) -> str:
@@ -99,7 +104,8 @@ def _fmt_size(n: int) -> str:
 
 def render_release(release: Release, max_files: int = 8) -> str:
     name = release.name or release.tag_name
-    head = f"<b>Release published</b> · {_esc(release.repo.full_name)}"
+    label = "Pre-release published" if release.prerelease else "Release published"
+    head = f"<b>{label}</b> · {_esc(release.repo.full_name)}"
     lines = [head, _esc(name), ""]
     checksums = next((a for a in release.assets if a[0].upper().startswith("SHA256")), None)
     files = [a for a in release.assets if a is not checksums]

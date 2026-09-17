@@ -25,9 +25,10 @@ def pr_json(number, state="open", merged=False, head="a" * 40, title="A change",
 
 
 class FakeForge:
-    def __init__(self, repos, pulls):
+    def __init__(self, repos, pulls, reviews=None):
         self._repos = repos
         self.pulls = pulls  # repo -> list[dict]
+        self.reviews_by_pr = reviews or {}  # (repo, number) -> list[dict]
 
     async def org_repos(self, org):
         return self._repos
@@ -35,8 +36,11 @@ class FakeForge:
     async def list_pulls(self, full, limit=30):
         return self.pulls.get(full, [])
 
+    async def reviews(self, full, number):
+        return self.reviews_by_pr.get((full, number), [])
 
-def make_poller(tmp, pulls, state=None):
+
+def make_poller(tmp, pulls, state=None, reviews=None):
     cfg = Config(
         bot_token="1:x",
         webhook_secret="s",
@@ -45,7 +49,7 @@ def make_poller(tmp, pulls, state=None):
         pr_poll_seconds=90,
     )
     state = state or State()
-    forge = FakeForge([REPO], pulls)
+    forge = FakeForge([REPO], pulls, reviews)
     announced = []
 
     async def announce(pr):
@@ -102,6 +106,31 @@ class PollerTests(unittest.IsolatedAsyncioTestCase):
         await poller._cycle()
         self.assertEqual(announced, [])  # draft not announced
         self.assertIsNotNone(state.pr_signature(f"{REPO}#2"))  # but tracked
+
+    async def test_approval_announced_on_open_pr(self):
+        poller, state, forge, announced = make_poller(self.tmp, {REPO: [pr_json(1)]})
+        await poller._cycle()  # seed
+        forge.reviews_by_pr[(REPO, 1)] = [
+            {"user": {"login": "ek"}, "state": "APPROVED", "submitted_at": "2026-09-14T10:00:00Z"}
+        ]
+        await poller._cycle()
+        self.assertEqual(len(announced), 1)
+        self.assertEqual(announced[0].approved_by, ("ek",))
+        self.assertEqual(announced[0].changes_by, ())
+
+    async def test_review_change_re_announces(self):
+        reviews = {(REPO, 1): [{"user": {"login": "ek"}, "state": "APPROVED", "submitted_at": "2026-09-14T10:00:00Z"}]}
+        poller, state, forge, announced = make_poller(self.tmp, {REPO: [pr_json(1)]}, reviews=reviews)
+        await poller._cycle()  # seed with an approval already present
+        self.assertEqual(announced, [])
+        forge.reviews_by_pr[(REPO, 1)] = [
+            {"user": {"login": "ek"}, "state": "APPROVED", "submitted_at": "2026-09-14T10:00:00Z"},
+            {"user": {"login": "ek"}, "state": "REQUEST_CHANGES", "submitted_at": "2026-09-14T12:00:00Z"},
+        ]
+        await poller._cycle()
+        self.assertEqual(len(announced), 1)
+        self.assertEqual(announced[0].approved_by, ())
+        self.assertEqual(announced[0].changes_by, ("ek",))
 
     async def test_restart_does_not_reseed(self):
         poller, state, forge, announced = make_poller(self.tmp, {REPO: [pr_json(1)]})

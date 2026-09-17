@@ -4,6 +4,7 @@ from pathlib import Path
 
 from gitbot.commands import CommandLoop
 from gitbot.config import Config
+from gitbot.health import Health
 
 CHAT = -1002548279653
 REPO = "NON-OS/nonos-micro-kernel"
@@ -51,6 +52,9 @@ class FakeForge:
     async def open_pulls(self, full, limit=20):
         return self.pulls.get(full, [])
 
+    async def list_pulls(self, full, limit=30):
+        return []
+
     async def commits(self, full, limit=5):
         return self._commits.get(full, [])
 
@@ -61,10 +65,10 @@ class FakeForge:
         return [{"tag_name": "v0.9.2"}]
 
 
-def make_loop():
+def make_loop(health=None):
     cfg = Config(bot_token="1:x", webhook_secret="s", chat_id=CHAT, state_file=Path("/tmp/x"))
     tg = FakeTelegram()
-    loop = CommandLoop(cfg, tg, FakeForge(), time.monotonic())
+    loop = CommandLoop(cfg, tg, FakeForge(), time.monotonic(), health)
     loop.bot_username = "NOXGitbot"
     return loop, tg
 
@@ -128,3 +132,31 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
         loop, tg = make_loop()
         await loop._handle(msg("/frobnicate"))
         self.assertEqual(tg.replies, [])
+
+    async def test_digest(self):
+        loop, tg = make_loop()
+        await loop._handle(msg("/digest"))
+        self.assertIn("this week", tg.replies[0][1])
+
+    async def test_repos(self):
+        loop, tg = make_loop()
+        await loop._handle(msg("/repos"))
+        body = tg.replies[0][1]
+        self.assertIn("Watching 2 repositories", body)
+        self.assertIn("nonos-micro-kernel", body)
+        self.assertIn("BuyBot", body)
+
+    async def test_status_without_health(self):
+        loop, tg = make_loop()
+        await loop._handle(msg("/status"))
+        self.assertIn("watching 2 repositories", tg.replies[0][1])
+
+    async def test_status_with_health(self):
+        health = Health()
+        health.register("pr_poll", 90)
+        health.ok("pr_poll")
+        loop, tg = make_loop(health)
+        await loop._handle(msg("/status"))
+        body = tg.replies[0][1]
+        self.assertIn("pr_poll", body)
+        self.assertIn("🟢", body)

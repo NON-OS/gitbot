@@ -141,4 +141,18 @@ class Handler:
         log.info("release %s %s: %s (%s)", release.repo.full_name, release.tag_name, decision, reason)
         if decision != filters.POST:
             return
-        self._post_banner(banners.RELEASE, render.render_release(release))
+        self.tg.enqueue(lambda: self.announce_release(release))
+
+    async def announce_release(self, release: models.Release) -> None:
+        """Post a release once. The dedup is shared with the poller through the
+        state, so a release announced from a webhook is never re-posted when the
+        poller later reads it from the API, and the other way round."""
+        if not release.tag_name or self.state.release_seen(release.repo.full_name, release.tag_name):
+            return
+        self.state.save(self.cfg.state_file)
+        text = render.render_release(release)
+        banner = self._banner(banners.RELEASE)
+        if banner.is_file():
+            await self.tg.send_photo(banner, text)
+        else:
+            await self.tg.send_text(text)

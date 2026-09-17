@@ -7,6 +7,7 @@ from pathlib import Path
 
 from gitbot.config import Config
 from gitbot.handler import Handler
+from gitbot.health import Health
 from gitbot.state import State
 from gitbot.webhook import Webhook, verify
 from tests import fixtures
@@ -266,6 +267,45 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
         posted = self.tg.sent + self.tg.sent_text
         self.assertEqual(len(posted), 1)
         self.assertIn("New repository", posted[0][1])
+
+
+class HealthEndpoint(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.cfg = Config(
+            bot_token="1:x",
+            webhook_secret=SECRET,
+            chat_id=-100123,
+            state_file=Path(self.dir.name) / "state.json",
+        )
+        self.handler = Handler(self.cfg, FakeTelegram(), State(), FakeSummary(), FakeForge())
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    async def test_plain_ok_without_health(self):
+        hook = Webhook(self.cfg, self.handler, State())
+        resp = await hook.health(FakeRequest({}, b""))
+        self.assertEqual(resp.status, 200)
+
+    async def test_json_200_when_fresh(self):
+        health = Health()
+        health.register("pr_poll", 90)
+        health.ok("pr_poll")
+        hook = Webhook(self.cfg, self.handler, State(), health=health)
+        resp = await hook.health(FakeRequest({}, b""))
+        self.assertEqual(resp.status, 200)
+        self.assertIn(b'"ok": true', resp.body)
+
+    async def test_json_503_when_stale(self):
+        health = Health()
+        health.register("pr_poll", 1)  # a 1s interval goes stale almost at once
+        health.started_at -= 100
+        for c in health._components.values():
+            c.started -= 100
+        hook = Webhook(self.cfg, self.handler, State(), health=health)
+        resp = await hook.health(FakeRequest({}, b""))
+        self.assertEqual(resp.status, 503)
 
 
 class VerifyUnit(unittest.TestCase):

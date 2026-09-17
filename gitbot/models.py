@@ -73,6 +73,8 @@ class PullRequest:
     head_sha: str = ""
     changed_files: int = 0
     draft: bool = False
+    approved_by: tuple[str, ...] = ()
+    changes_by: tuple[str, ...] = ()
 
     @property
     def is_draft(self) -> bool:
@@ -94,3 +96,5 @@ class Release:
     name: str
     url: str
     assets: list[tuple[str, int]] = field(default_factory=list)
+    draft: bool = False
+    prerelease: bool = False

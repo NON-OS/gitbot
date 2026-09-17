@@ -14,9 +14,11 @@ from .alerts import Alerter
 from .authors import SyncSummary
 from .commands import CommandLoop
 from .config import Config
+from .digest import DigestScheduler
 from .forge import ForgeClient
 from .handler import Handler
-from .poller import PRPoller
+from .health import Health
+from .poller import PRPoller, ReleasePoller
 from .state import State
 from .telegram import Telegram
 from .webhook import build_app
@@ -53,7 +55,8 @@ async def run() -> None:
         summary = SyncSummary(forge_session, cfg.forge_base)
         forge = ForgeClient(forge_session, cfg.forge_base)
         handler = Handler(cfg, tg, state, summary, forge)
-        app = build_app(cfg, handler, state, alerter)
+        health = Health()
+        app = build_app(cfg, handler, state, alerter, health)
 
         runner = web.AppRunner(app, access_log=None)
         await runner.setup()
@@ -61,15 +64,21 @@ async def run() -> None:
         await site.start()
         log.info("listening on http://%s:%d%s", cfg.listen_host, cfg.listen_port, cfg.webhook_path)
 
-        poller = PRPoller(cfg, forge, state, handler.announce_pr)
+        poller = PRPoller(cfg, forge, state, handler.announce_pr, health, alerter)
         poller_task = asyncio.create_task(poller.run())
-        commands = CommandLoop(cfg, tg, forge, time.monotonic())
+        releases = ReleasePoller(cfg, forge, state, handler.announce_release, health, alerter)
+        releases_task = asyncio.create_task(releases.run())
+        commands = CommandLoop(cfg, tg, forge, time.monotonic(), health)
         commands_task = asyncio.create_task(commands.run())
+        digest = DigestScheduler(cfg, forge, tg)
+        digest_task = asyncio.create_task(digest.run())
         try:
             await stop.wait()
         finally:
             poller_task.cancel()
+            releases_task.cancel()
             commands_task.cancel()
+            digest_task.cancel()
             handler.batcher.flush_all()
             await runner.cleanup()
             state.save(cfg.state_file)

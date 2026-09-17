@@ -58,7 +58,10 @@ interval. Adding it needs organisation admin rights.
   means configuration, and the log names the variable it rejected.
 - The forge webhook page has Test delivery and a log of recent deliveries
   with the request and response of each, and can resend one.
-- `curl -s localhost:3191/healthz` answers `ok`.
+- `curl -s localhost:3191/healthz` returns the health JSON: overall `ok`,
+  uptime and per-task last-cycle age. It answers 200 while the tasks are fresh
+  and 503 once a poller has stalled, so it can back a monitor or a reverse-proxy
+  check.
 
 ## Upgrading
 

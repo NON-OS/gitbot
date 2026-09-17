@@ -67,4 +67,6 @@ def parse_release(payload: dict) -> Release:
         name=rel.get("name", ""),
         url=rel.get("html_url", ""),
         assets=assets,
+        draft=bool(rel.get("draft", False)),
+        prerelease=bool(rel.get("prerelease", False)),
     )

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import time
 
-from .models import PullRequest, Repo
+from .models import PullRequest, Release, Repo
 
 log = logging.getLogger("gitbot.forge")
 
@@ -32,6 +32,20 @@ def pull_from_json(data: dict, repo: Repo) -> PullRequest:
         head_sha=(data.get("head", {}) or {}).get("sha", ""),
         changed_files=int(data.get("changed_files", 0) or 0),
         draft=bool(data.get("draft", False)),
+    )
+
+
+def release_from_json(data: dict, repo: Repo) -> Release:
+    assets = [(a.get("name", ""), int(a.get("size", 0) or 0)) for a in (data.get("assets") or [])]
+    return Release(
+        repo=repo,
+        action="published",
+        tag_name=data.get("tag_name", ""),
+        name=data.get("name", "") or "",
+        url=data.get("html_url", ""),
+        assets=assets,
+        draft=bool(data.get("draft", False)),
+        prerelease=bool(data.get("prerelease", False)),
     )
 
 
@@ -65,6 +79,10 @@ class ForgeClient:
 
     async def commits(self, repo_full_name: str, limit: int = 5) -> list[dict]:
         data = await self._get(f"/repos/{repo_full_name}/commits?limit={limit}&stat=false")
+        return data if isinstance(data, list) else []
+
+    async def reviews(self, repo_full_name: str, number: int) -> list[dict]:
+        data = await self._get(f"/repos/{repo_full_name}/pulls/{number}/reviews")
         return data if isinstance(data, list) else []
 
     async def repo(self, repo_full_name: str) -> dict | None:

@@ -13,7 +13,9 @@ import logging
 import time
 
 from .config import Config
+from .digest import build_digest
 from .forge import ForgeClient
+from .health import Health
 from .render import first_line
 from .telegram import Telegram
 
@@ -21,12 +23,15 @@ log = logging.getLogger("gitbot.cmd")
 
 COOLDOWN = 3.0
 MAX_ROWS = 15
+UPDATES_TIMEOUT = 25
 
 HELP = (
     "<b>git.nonos.software</b>\n"
     "/prs [repo] - open pull requests\n"
     "/latest &lt;repo&gt; - recent commits on the default branch\n"
     "/repo &lt;repo&gt; - repository summary\n"
+    "/repos - repositories being watched\n"
+    "/digest - what landed this week\n"
     "/status - bot health"
 )
 
@@ -36,13 +41,25 @@ def _esc(text: str) -> str:
 
 
 class CommandLoop:
-    def __init__(self, cfg: Config, tg: Telegram, forge: ForgeClient, started_at: float):
+    NAME = "commands"
+
+    def __init__(
+        self,
+        cfg: Config,
+        tg: Telegram,
+        forge: ForgeClient,
+        started_at: float,
+        health: Health | None = None,
+    ):
         self.cfg = cfg
         self.tg = tg
         self.forge = forge
         self.started_at = started_at
+        self.health = health
         self.bot_username = ""
         self._last: dict[int, float] = {}
+        if health:
+            health.register(self.NAME, UPDATES_TIMEOUT)
 
     async def run(self) -> None:
         if not self.cfg.commands_enabled:
@@ -54,7 +71,10 @@ class CommandLoop:
         log.info("group commands enabled as @%s", self.bot_username)
         offset = 0
         while True:
-            for upd in await self.tg.get_updates(offset):
+            updates = await self.tg.get_updates(offset, UPDATES_TIMEOUT)
+            if self.health:
+                self.health.ok(self.NAME)  # the long poll returned, the loop is alive
+            for upd in updates:
                 offset = upd["update_id"] + 1
                 msg = upd.get("message")
                 if not msg:
@@ -102,11 +122,32 @@ class CommandLoop:
     async def cmd_status(self, args):
         up = int(time.monotonic() - self.started_at)
         repos = await self.forge.org_repos(self.cfg.org)
-        return (
-            "<b>git bot</b>\n"
-            f"up {up // 3600}h {(up % 3600) // 60}m\n"
-            f"watching {len(repos)} repositories, polling every {int(self.cfg.pr_poll_seconds)}s"
-        )
+        lines = [
+            "<b>git bot</b>",
+            f"up {up // 3600}h {(up % 3600) // 60}m",
+            f"watching {len(repos)} repositories",
+        ]
+        if self.health:
+            snap = self.health.snapshot()
+            for name, c in snap["components"].items():
+                mark = "🟢" if c["ok"] else "🔴"
+                age = c["last_ok_age_seconds"]
+                when = "no cycle yet" if age is None else f"{age}s ago"
+                lines.append(f"{mark} {_esc(name)}: {when}")
+        else:
+            lines.append(f"polling every {int(self.cfg.pr_poll_seconds)}s")
+        return "\n".join(lines)
+
+    async def cmd_repos(self, args):
+        repos = await self.forge.org_repos(self.cfg.org)
+        if not repos:
+            return "No repositories found."
+        lines = [f"<b>Watching {len(repos)} repositories</b>"]
+        for full in sorted(repos)[:MAX_ROWS]:
+            lines.append(f"· {_esc(self._short(full))}")
+        if len(repos) > MAX_ROWS:
+            lines.append(f"· and {len(repos) - MAX_ROWS} more")
+        return "\n".join(lines)
 
     async def cmd_prs(self, args):
         if args:
@@ -152,6 +193,9 @@ class CommandLoop:
         url = f"{self.cfg.forge_base}/{full}"
         lines.append(f'<a href="{url}">{_esc(url)}</a>')
         return "\n".join(lines)
+
+    async def cmd_digest(self, args):
+        return await build_digest(self.forge, self.cfg)
 
     async def cmd_repo(self, args):
         full = await self._resolve(args)

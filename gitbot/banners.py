@@ -29,4 +29,6 @@ def for_pull_request(pr: PullRequest) -> str:
         return PR_MERGED
     if pr.action == "closed":
         return PR_CLOSED
+    if pr.approved_by and not pr.changes_by:
+        return PR_APPROVED
     return PR_OPENED

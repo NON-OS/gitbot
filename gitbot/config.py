@@ -93,7 +93,12 @@ class Config:
     batch_seconds: float = 60.0
     admin_chat_id: int = 0
     pr_poll_seconds: float = 90.0
+    release_poll_seconds: float = 300.0
     commands_enabled: bool = True
+    reviews_enabled: bool = True
+    digest_enabled: bool = True
+    digest_dow: int = 6  # Monday=0 .. Sunday=6
+    digest_hour: int = 16  # UTC
     log_level: str = "INFO"
 
     @classmethod
@@ -129,6 +134,11 @@ class Config:
             batch_seconds=_env_float("BATCH_SECONDS", 60.0, 0.0, 600.0),
             admin_chat_id=_env_int("ADMIN_CHAT_ID", 0, -(2**63), 2**63 - 1),
             pr_poll_seconds=_env_float("PR_POLL_SECONDS", 90.0, 0.0, 3600.0),
+            release_poll_seconds=_env_float("RELEASE_POLL_SECONDS", 300.0, 0.0, 86400.0),
             commands_enabled=_env("COMMANDS_ENABLED", "1") not in ("0", "false", "no"),
+            reviews_enabled=_env("REVIEWS_ENABLED", "1") not in ("0", "false", "no"),
+            digest_enabled=_env("DIGEST_ENABLED", "1") not in ("0", "false", "no"),
+            digest_dow=_env_int("DIGEST_DOW", 6, 0, 6),
+            digest_hour=_env_int("DIGEST_HOUR", 16, 0, 23),
             log_level=level,
         )

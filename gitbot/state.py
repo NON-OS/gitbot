@@ -16,6 +16,7 @@ log = logging.getLogger("gitbot.state")
 MAX_DELIVERIES = 5000
 MAX_PR_MESSAGES = 2000
 MAX_PR_STATE = 2000
+MAX_RELEASES = 1000
 
 
 class State:
@@ -24,10 +25,17 @@ class State:
         self.pr_messages: OrderedDict[str, int] = OrderedDict()
         # repo#number -> "state:merged:head_sha", so the poller sees what changed
         self.pr_state: OrderedDict[str, str] = OrderedDict()
+        # repo@tag of a release already announced, so the webhook and the poller
+        # never post the same release twice
+        self.releases: OrderedDict[str, bool] = OrderedDict()
 
     @staticmethod
     def pr_key(repo_full_name: str, number: int) -> str:
         return f"{repo_full_name}#{number}"
+
+    @staticmethod
+    def release_key(repo_full_name: str, tag: str) -> str:
+        return f"{repo_full_name}@{tag}"
 
     @classmethod
     def load(cls, path: Path) -> State:
@@ -48,6 +56,8 @@ class State:
                 continue
         for key, sig in dict(raw.get("pr_state", {})).items():
             st.pr_state[str(key)] = str(sig)
+        for key in list(raw.get("releases", []))[-MAX_RELEASES:]:
+            st.releases[str(key)] = True
         return st
 
     def save(self, path: Path) -> None:
@@ -55,6 +65,7 @@ class State:
             "deliveries": list(self.deliveries.keys())[-MAX_DELIVERIES:],
             "pr_messages": dict(list(self.pr_messages.items())[-MAX_PR_MESSAGES:]),
             "pr_state": dict(list(self.pr_state.items())[-MAX_PR_STATE:]),
+            "releases": list(self.releases.keys())[-MAX_RELEASES:],
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -83,6 +94,16 @@ class State:
 
     def pr_message(self, repo_full_name: str, number: int) -> int | None:
         return self.pr_messages.get(self.pr_key(repo_full_name, number))
+
+    def release_seen(self, repo_full_name: str, tag: str) -> bool:
+        """Records a release and returns True if it was already announced."""
+        key = self.release_key(repo_full_name, tag)
+        if key in self.releases:
+            return True
+        self.releases[key] = True
+        while len(self.releases) > MAX_RELEASES:
+            self.releases.popitem(last=False)
+        return False
 
     def pr_signature(self, key: str) -> str | None:
         return self.pr_state.get(key)

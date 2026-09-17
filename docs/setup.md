@@ -49,7 +49,12 @@ cp .env.example .env
 | `BATCH_SECONDS` | no | `60` | coalesce commit pushes per branch for this many seconds, 0 for immediate |
 | `ADMIN_CHAT_ID` | no | `0` | private chat for failure alerts, 0 disables |
 | `PR_POLL_SECONDS` | no | `90` | how often to poll the forge for pull request changes, 0 disables |
+| `RELEASE_POLL_SECONDS` | no | `300` | how often to poll the forge for new releases, 0 disables |
 | `COMMANDS_ENABLED` | no | `1` | answer read-only group commands, needs group privacy off |
+| `REVIEWS_ENABLED` | no | `1` | show approvals and change requests on open pull requests |
+| `DIGEST_ENABLED` | no | `1` | post the weekly summary on a schedule |
+| `DIGEST_DOW` | no | `6` | weekday for the digest, Monday 0 to Sunday 6 |
+| `DIGEST_HOUR` | no | `16` | hour of day for the digest, 0 to 23, UTC |
 | `LOG_LEVEL` | no | `INFO` | DEBUG, INFO, WARNING or ERROR |
 
 Every value is validated at start. A malformed token, a non-numeric chat id

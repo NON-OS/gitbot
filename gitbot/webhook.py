@@ -16,6 +16,7 @@ from aiohttp import web
 
 from .config import Config
 from .handler import Handler
+from .health import Health
 from .state import State
 
 log = logging.getLogger("gitbot.webhook")
@@ -33,11 +34,12 @@ def verify(secret: bytes, raw_body: bytes, signature: str) -> bool:
 
 
 class Webhook:
-    def __init__(self, cfg: Config, handler: Handler, state: State, alerter=None):
+    def __init__(self, cfg: Config, handler: Handler, state: State, alerter=None, health: Health | None = None):
         self.cfg = cfg
         self.handler = handler
         self.state = state
         self.alerter = alerter
+        self._health = health
         self._secret = cfg.webhook_secret.encode()
         self._sig_fails = 0
 
@@ -76,11 +78,16 @@ class Webhook:
         return web.Response(status=202, text="ok")
 
     async def health(self, request: web.Request) -> web.Response:
-        return web.Response(text="ok")
+        if self._health is None:
+            return web.Response(text="ok")
+        snap = self._health.snapshot()
+        return web.json_response(snap, status=200 if snap["ok"] else 503)
 
 
-def build_app(cfg: Config, handler: Handler, state: State, alerter=None) -> web.Application:
-    hook = Webhook(cfg, handler, state, alerter)
+def build_app(
+    cfg: Config, handler: Handler, state: State, alerter=None, health: Health | None = None
+) -> web.Application:
+    hook = Webhook(cfg, handler, state, alerter, health)
     app = web.Application()
     app.router.add_post(cfg.webhook_path, hook.handle)
     app.router.add_get("/healthz", hook.health)
